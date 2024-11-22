@@ -1,47 +1,39 @@
-import json
-import itertools
-import subprocess
-import time
-import copy
-
-from ml_utils import job_queue 
-from threading import Thread 
-
-JobQueue = job_queue.JobQueue
+from ml_utils.job_queue import JobQueue
 
 # Define the parameter space
 params_space = {
-    "act_fl": [1,2,3,4],
+    "act_fl": [1,2,3,4,5,6],
     "weight_fl": [100],
     "batch_size": [512,1024, 2048,4096],
-    "lr": [0.002, ],
+    "lr": [0.001, ],
     "steps": [20000],
-    "quantizer_type": ["noise"],
+    "quantizer_type": ["int-sto", "int-deter", "noise"],
+    "do_sampling": ["yes", "no"],
+    "runs": [i for i in range(16)],
+    "model_config": ["784,100,100,10", "784,100,10", "784,100,100,100,10"],
 }
-
 
 # Function to create and run the command
 def get_cmd(params):
     # Generate the command to run the experiment
-    cmd = ["python", "exp4.py", ]
+    cmd = ["python", "mnist_mlp_simplify.py", ]
     json_dict = {}
+    del params["runs"]
     for key, value in params.items():
         cmd.append(f"--{key} {value}")
     cmd.append(f"--do_sampling no")
-    cmd.append(f"--experiment_name act-noise-lr-0.0015-gaussian ")
+    cmd.append(f"--experiment_name act-{params['quantizer_type']}-sampling-{params['do_sampling']}-model-{params['model_config']} ")
     # Run the command and return the process
     return " ".join(cmd)
 
-queue = JobQueue(4, 1)
+queue = JobQueue([0,1,2,3], 2)
 
 # Generate all possible combinations of parameters
-cmds = []
-for values in itertools.product(*params_space.values()):
-    # Create a dictionary of parameters
-    params = {key: value for key, value in zip(params_space.keys(), values)}
-    # Add the job to the queue
-    cmds.append(get_cmd(params))
+cmds = queue.expand_param_space(params_space, get_cmd)
+for i in cmds:
+    print(i)
 
+queue.map(cmds)
 
 # Run the jobs
 # print(cmds)

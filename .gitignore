@@ -50,3 +50,6 @@ yarn-error.log
 *.war
 *.ear
 
+data/
+.pytest_cache/
+experiment_metrics/

@@ -6,3 +6,4 @@ command pip3 install  scikit-learn # Mon 14 Oct 13:02:02 BST 2024
 command pip3 install ipykernel -U --force-reinstall # Mon 14 Oct 14:46:06 BST 2024
 command pip3 install torchvision # Tue 15 Oct 18:03:42 BST 2024
 command pip3 install pytorch_lightning # Thu 31 Oct 13:16:36 GMT 2024
+command pip3 install pytest # Fri 22 Nov 02:57:00 GMT 2024

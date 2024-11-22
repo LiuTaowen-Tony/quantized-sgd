@@ -1,3 +1,4 @@
+import math
 import torch.nn.grad
 import tqdm
 import torch
@@ -20,8 +21,10 @@ class Args:
     do_sampling: bool = False
     quantizer_type: str = "int_sto"
 
-parser = DataClassArgumentParser(Args)
-args: Args = parser.parse_args_into_dataclasses()[0]
+parser = DataClassArgumentParser((Args, log_util.LoggerArgs))
+args, logger_args = parser.parse_args_into_dataclasses()
+args: Args
+logger_args: log_util.LoggerArgs
 
 dtype = torch.float32
 device = torch.device("cuda")
@@ -75,13 +78,12 @@ class Model():
             quantizer = quant.IntQuant(fl=act_precision_level, stochastic=False)
         elif quantizer_type == "noise":
             # keep same scala of variance of individual quantization
-            var = (2 ** act_precision_level)
-            std = torch.sqrt(var)
+            var = (2 ** -act_precision_level) / 24
+            std = math.sqrt(var)
             quantizer = quant.NoiseQuant(std=std)
             
         if act_precision_level == 100:
-            quantizer.quant = lambda x: x
-
+            quantizer = quant.FP32
 
         if qweight2 is None:
             qweight2 = self.weight2
@@ -114,6 +116,20 @@ class Model():
         self.bias2 -= lr * db2
 
 
+class MLP(nn.Module):
+    def __init__(self, neurons):
+        super().__init__()
+        self.neurons = neurons
+        self.layers = torch.nn.ModuleList()
+        for i in range(len(neurons) - 1):
+            self.layers.append(nn.Linear(neurons[i], neurons[i + 1]))
+            if i != len(neurons) - 2:
+                self.layers.append(nn.ReLU())
+    
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 def test_result(logits, labels):
     loss = softmax_crossentropy(logits, labels)
@@ -146,7 +162,7 @@ def sanity_check(model: Model, X, y):
     dw1_2, *_ = model.act_noisy_back(y2, qweight2=qweigth2)
     print(dw1.norm(), dw1_2.norm())
 
-def train_step(model: Model, X, y, args, logger):
+def train_step(model: Model, X, y, args: Args, logger: log_util.Logger):
     logits = model.forward(X)
     if args.weight_fl == 100:
         qweight2 = model.weight2
@@ -160,7 +176,7 @@ def train_step(model: Model, X, y, args, logger):
     bar.update(1)
     bar.set_postfix(result)
     logger.log(result)
-    if stepi % (args.wandb_interval) == 0 or stepi >= args.steps:
+    if stepi % (logger_args.wandb_interval) == 0 or stepi >= args.steps:
         logtis = model.forward(X_train)
         dw1, db1, dw2, db2 = model.act_noisy_back(y_train) 
         acc, loss = test_result(model.z2, y_train)
@@ -181,7 +197,7 @@ if not args.do_sampling:
 model = Model()
 bar = tqdm.tqdm(range(args.steps))
 stepi = 0
-logger = log_util.Logger.from_args(args)
+logger = log_util.Logger.from_args(logger_args, hparam_or_hparam_list=args)
 sanity_check(model, X_train[:512], y_train[:512])
 
 while True:
@@ -194,6 +210,7 @@ while True:
                 stepi += 1
         else:
             if stepi >= args.steps:
+                logger.save_experiment()
                 exit()
             X = X_train.repeat(int(args.batch_size / 512), 1)
             y = y_train.repeat(int(args.batch_size / 512))
